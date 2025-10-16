@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>名前付きロックで実現する排他制御</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Hiragino Sans', 'Yu Gothic', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+        }
+
+        .slide-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .slide {
+            display: none;
+            width: 98%;
+            /* max-width: 1200px; */
+            height: 98vh;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: slideIn 0.5s ease-out;
+            overflow: hidden;
+        }
+
+        .slide.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        h1 {
+            font-size: 3.0em;
+            color: #2d3748;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        h2 {
+            font-size: 2.7em;
+            color: #2d3748;
+            margin-bottom: 20px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        h3 {
+            font-size: 2.5em;
+            color: #4a5568;
+            margin: 15px 0 10px 0;
+        }
+
+        .subtitle {
+            font-size: 2.7em;
+            color: #718096;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .content {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        ul {
+            font-size: 2.1em;
+            line-height: 1.6;
+            color: #4a5568;
+            margin-left: 30px;
+        }
+
+        li {
+            margin: 8px 0;
+        }
+
+        code {
+            background: #f7fafc;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            color: #e53e3e;
+            font-size: 1.9em;
+        }
+
+        pre {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 1.9em;
+            line-height: 1.4;
+            margin: 10px 0;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .highlight {
+            background: #fef5e7;
+            padding: 12px;
+            border-left: 4px solid #f39c12;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+
+        .problem {
+            background: #fee;
+            padding: 12px;
+            border-left: 4px solid #e53e3e;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+
+        .solution {
+            background: #e6ffed;
+            padding: 12px;
+            border-left: 4px solid #38a169;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+
+        .navigation {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            display: flex;
+            gap: 15px;
+        }
+
+        button {
+            padding: 15px 30px;
+            font-size: 1.2em;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            background: #667eea;
+            color: white;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        button:disabled {
+            background: #cbd5e0;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .slide-number {
+            display: none;
+            position: fixed;
+            bottom: 30px;
+            left: 30px;
+            font-size: 1.3em;
+            color: white;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px 20px;
+            border-radius: 10px;
+        }
+
+        .diagram {
+            background: #f7fafc;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 0.95em;
+            line-height: 1.5;
+        }
+
+        .arrow {
+            color: #e53e3e;
+            font-weight: bold;
+        }
+
+        strong {
+            color: #2d3748;
+            font-weight: 600;
+        }
+
+        .code-small {
+            font-size: 1.75em;
+            line-height: 1.3;
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 15px 0;
+        }
+
+        .column-item {
+            padding: 15px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="slide-container">
+        <!-- Slide 1: タイトル -->
+        <div class="slide active">
+            <div class="content" style="position: relative;">
+                <div style="text-align: center; margin-top: 80px;">
+                    <h1 style="font-size: 3.5em; margin-bottom: 30px;">名前付きロックで実現する排他制御</h1>
+                    <p style="font-size: 2.0em; color: #4a5568;">Mysqlの名前付きロックについてとGoでの実装</p>
+                </div>
+                <div style="position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 15px;">
+                    <img src="logo.png" alt="Company Logo" style="height: 80px; width: auto;">
+                    <p style="font-size: 1.6em; color: #4a5568; margin: 0;">toumakido</p>
+                </div>
+            </div>
+        </div>
+
+         <!-- Slide 2: 自己紹介 -->
+        <div class="slide">
+            <div class="content">
+                <h2 >自己紹介</h2>
+                <div style="display: flex; align-items: center; justify-content: center; gap: 40px; flex: 1;">
+                    <div style="display: flex; align-items: center; gap: 40px; max-width: 1000px;">
+                        <div style="flex: 0 0 auto;">
+                            <img src="profile.jpg" alt="プロフィール写真" style="max-width: 400px; max-height: 500px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);">
+                        </div>
+                        <div class="profile-info" style="flex: 1; font-size: 2.0em;">
+                            <p><span class="emoji">🏢</span><strong>所属：</strong>Finatext 証券事業</p>
+                            <p><span class="emoji">💻</span><strong>職種：</strong>エンジニア</p>
+                            <p><span class="emoji">🎓</span><strong>入社：</strong>25卒</p>
+                            <p><span class="emoji">👤</span><strong>名前：</strong>城戸透馬</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 2: 問題提起 -->
+        <div class="slide">
+            <div class="content">
+                <h2>問題：SELECT FOR UPDATEの限界</h2>
+                <h3>在庫管理システムでの実装</h3>
+                <pre>トランザクション開始
+
+商品の在庫をロックして取得 (SELECT FOR UPDATE)
+if (在庫が存在する) {
+    在庫を増やす (UPDATE)
+} else {
+    新しい在庫レコードを作成 (INSERT)
+}
+
+トランザクション終了</pre>
+                <div class="problem">
+                    <h3 style="font-size: 1.9em;">❌ レコードが存在しない場合、ロックできない</h3>
+                    <!-- <ul>
+                        <li><code>SELECT FOR UPDATE</code>は<strong>存在するレコード</strong>にしかロックをかけられない</li>
+                    </ul> -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 3: 一般的な解決策 -->
+        <div class="slide">
+            <div class="content">
+                <h2>一般的な解決策とその課題</h2>
+                <div class="two-column">
+                    <div class="column-item" style="background: #f7fafc; border: 2px solid #4a5568;">
+                        <h3 style="margin-top: 0;">親テーブルのロック</h3>
+                        <div class="problem" style="margin-top: 10px;">
+                            <strong style="font-size: 1.95em;">課題：</strong>
+                            <ul style="font-size: 1.95em; margin-left: 20px;">
+                                <li>適切な親テーブルが存在しない場合がある</li>
+                                <li>関係のない処理まで待機させてしまう</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="column-item" style="background: #f7fafc; border: 2px solid #4a5568;">
+                        <h3 style="margin-top: 0;">初期値レコードの作成</h3>
+                        <div class="problem" style="margin-top: 10px;">
+                            <strong style="font-size: 1.95em;">課題：</strong>
+                            <ul style="font-size: 1.95em; margin-left: 20px;">
+                                <li>ダミーレコードの管理が必要</li>
+                                <li>初期値を用意できない場合がある</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="highlight" style="margin-top: 15px; text-align: center;">
+                    <strong style="font-size: 2.2em;">→ レコードの存在に依存しない排他制御が必要！</strong>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 4: 名前付きロックとは -->
+        <div class="slide">
+            <div class="content">
+                <h2>名前付きロックによる解決</h2>
+                <h3>MySQLの名前付きロック（Named Lock）</h3>
+                <ul>
+                    <li>任意の文字列をキーとしてロックを取得・解放</li>
+                    <li><strong>データベースオブジェクトに依存しない</strong></li>
+                </ul>
+                <div class="two-column">
+                    <div class="column-item" style="background: #2d3748; border-radius: 8px;">
+                        <h3 style="margin-top: 0; color: #e2e8f0; font-size: 2.2em;">ロックの取得</h3>
+                        <pre style="margin: 0; padding: 10px; background: transparent; font-size: 1.6em;">SELECT GET_LOCK('product_ABC123', 10);
+
+-- 戻り値:
+-- 1=成功
+-- 0=タイムアウト
+-- NULL=エラー</pre>
+                    </div>
+                    <div class="column-item" style="background: #2d3748; border-radius: 8px;">
+                        <h3 style="margin-top: 0; color: #e2e8f0; font-size: 2.2em;">ロックの解放</h3>
+                        <pre style="margin: 0; padding: 10px; background: transparent; font-size: 1.6em;">SELECT RELEASE_LOCK('product_ABC123');
+
+-- 戻り値:
+-- 1=成功
+-- 0=ロック存在せず
+-- NULL=エラー</pre>
+                    </div>
+                </div>
+                <div class="solution">
+                    <strong style="font-size: 2.2em;">✅ レコードの存在に関係なく確実にロックが取得できる！</strong><br>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 5: 普通に実装すると（ケース1） -->
+        <div class="slide">
+            <div class="content">
+                <h2>Goで普通に実装すると...（ケース1）</h2>
+                <pre class="code-small">
+// ロック取得
+_, err := s.db.Exec("SELECT GET_LOCK(?, 10)", lockName)  <span style="color: #f59e0b;">// セッションA</span>
+if err != nil { return err }
+
+// 実際の処理（SELECT, INSERT, UPDATE など）
+// ...
+
+// ロック解放
+_, err = s.db.Exec("SELECT RELEASE_LOCK(?)", lockName)  <span style="color: #f59e0b;">// セッションB</span>
+return err
+</pre>
+                <div class="highlight">
+                    <h3>名前付きロックは、ロックを取得したセッションでしか解放できない</h3>
+                </div>
+                <!-- <div class="problem">
+                    <h3>❌ 実際に起こる問題</h3>
+                    <div class="diagram" style="font-size: 1.2em;">
+GET_LOCK → プールから<strong>セッションA</strong>取得 → ロック成功<br>
+RELEASE_LOCK → プールから<strong>セッションB</strong>取得 → <span class="arrow">解放失敗</span><br>
+<span class="arrow">→ セッションAのロックが残り続ける</span>
+                    </div>
+                </div> -->
+            </div>
+        </div>
+
+        <!-- Slide 6: 普通に実装すると（ケース2） -->
+        <div class="slide">
+            <div class="content">
+                <h2>Goで普通に実装すると...（ケース2）</h2>
+                <div class="highlight">
+                    <h3>名前付きロックは、同一セッション内では同じロックを複数回取得できる（他セッションの場合に待機）</h3>
+                </div>
+                <div class="problem">
+                    <!-- <h3>❌ 実際に起こる問題</h3> -->
+                    <div class="diagram" style="font-size: 2.5em;">
+リクエスト1: GET_LOCK → プールから<strong>セッション100</strong>取得 → 成功<br>
+リクエスト2: GET_LOCK → プールから<strong>セッション100</strong>再利用<br>
+<span class="arrow">→ 同一セッションなので成功してしまう</span><br>
+<span class="arrow">→ 本来待機すべきリクエスト2が通る</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 7: 正しい実装方法 -->
+        <div class="slide">
+            <div class="content">
+                <h2>リクエストごとに排他制御をする実装</h2>
+                <pre class="code-small"><span style="color: #f59e0b;">conn, err := s.db.Conn(ctx) // 専用セッション(database/sql.Conn)を発行</span>
+if err != nil {
+    return err
+}
+
+err = <span style="color: #f59e0b;">conn.GetLock</span>(ctx, lockName) // 専用セッションでロック取得
+if err != nil {
+    return err
+}
+
+// トランザクション処理
+tx, err := s.db.BeginTx(ctx)
+... 実際の処理 ...
+
+<span style="color: #f59e0b;">conn.ReleaseLock</span>(ctx, lockName) // 専用セッションでロックリリース
+conn.Close()
+</pre>
+                <!-- <div class="solution">
+                    <strong>✅ 同一セッション内でロック取得・解放を実行</strong><br>
+                    <strong>✅ 各リクエストが独自の専用コネクションを取得</strong>
+                </div> -->
+            </div>
+        </div>
+
+        <!-- Slide 8: まとめ -->
+        <div class="slide">
+            <div class="content">
+                <h2>まとめ</h2>
+                <div class="highlight">
+                    <h3>✅ 名前付きロックの利点</h3>
+                    <ul>
+                        <li>レコードの存在に関係なく確実にロックが取得できる</li>
+                        <li>専用テーブルやダミーレコードが不要</li>
+                        <li>ロック名を自由に設計できる</li>
+                    </ul>
+                </div>
+                <div class="problem">
+                    <h3>⚠️ Goでの実装の注意点</h3>
+                    <ul>
+                        <li><strong>専用コネクション（conn）の確保が必要</strong></li>
+                        <li>同一セッション内でロック取得・解放を実行</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="slide-number">
+        <span id="current-slide">1</span> / <span id="total-slides">8</span>
+    </div>
+
+    <!-- <div class="navigation">
+        <button id="prev-btn" onclick="previousSlide()">← 前へ</button>
+        <button id="next-btn" onclick="nextSlide()">次へ →</button>
+    </div> -->
+
+    <script>
+        let currentSlide = 0;
+        const slides = document.querySelectorAll('.slide');
+        const totalSlides = slides.length;
+
+        document.getElementById('total-slides').textContent = totalSlides;
+
+        function showSlide(n) {
+            slides[currentSlide].classList.remove('active');
+            currentSlide = (n + totalSlides) % totalSlides;
+            slides[currentSlide].classList.add('active');
+            
+            document.getElementById('current-slide').textContent = currentSlide + 1;
+            
+            document.getElementById('prev-btn').disabled = currentSlide === 0;
+            document.getElementById('next-btn').disabled = currentSlide === totalSlides - 1;
+        }
+
+        function nextSlide() {
+            if (currentSlide < totalSlides - 1) {
+                showSlide(currentSlide + 1);
+            }
+        }
+
+        function previousSlide() {
+            if (currentSlide > 0) {
+                showSlide(currentSlide - 1);
+            }
+        }
+
+        // キーボードナビゲーション
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight' || e.key === ' ') {
+                nextSlide();
+            } else if (e.key === 'ArrowLeft') {
+                previousSlide();
+            }
+        });
+
+        // 初期状態
+        showSlide(0);
+    </script>
+</body>
+</html>
